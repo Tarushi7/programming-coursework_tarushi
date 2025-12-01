@@ -1,0 +1,490 @@
+---
+title: "CW_Part2_R"
+author: "Tarushi"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+# Coursework Part 2
+
+Please note that the explanation of my results is done in the report and here, I have explained my code throughout to what I am doing in each chunk.
+
+Let's start by setting and checking the working directory. The working directory must be set continuing from the current directory of the file to ensure that it works everywhere.
+
+```{r}
+
+# current directory of the rmd file:
+script_dir <- dirname(rstudioapi::getActiveDocumentContext()$path)
+
+# setting the working directory to the script directory so that it runs regardless of where the file is
+setwd(script_dir)
+
+# to check if the working directory has been correctly set
+getwd()
+
+# (only for me)
+# setwd("/Users/sushii/SIM_UOL/Year 2 acads/Programming for DS/Coursework/FINAL")
+
+```
+
+Installing the required packages
+
+```{r}
+install.packages("RSQLite")
+library(RSQLite)
+library(dplyr)
+library(DBI)
+library(ggplot2)
+```
+
+Connecting to the database that I created: CW_FLIGHTS_DATA.db and checking the tables and columns in the database. Please ensure that the database is in the same directory as this file is in (mentioned above). The following database contains files for the years 1997 to 2006 (10 years) and I have chosen these years in light of the merger that Boeing had with merger with McDonnell Douglas in 1997.
+
+```{r}
+# the name of my database is "CW_FLIGHTS_DATA.db"
+conn <- dbConnect(RSQLite::SQLite(), "CW_FLIGHTS_DATA.db")
+print(conn)
+
+dbListTables(conn)
+
+# specifically for the main table 1997to2006
+dbListFields(conn,"1997to2006")
+
+
+```
+
+### DO NOT RUN THE FOLLOWING CHUNK !!!
+
+The following chunk can be used to create (or append) an existing (or non-existing) database. Thus, if the computer does not have the database "CW_FLIGHTS_DATA.db" with the right data inside, the code below should fix that and create a database in SQLite. I did not use the code in the following chunk as I created the database on SQLite itself and then extablished a connection to in in the code above so that I can work on it.
+
+```{r}
+
+# additional required library
+# library(readr)
+
+
+# connecting to the SQLite database
+# connection <- dbConnect(SQLite(), "CW_FLIGHTS_DATA.db")
+
+
+# CSV files to read from computer (downloaded from dataverse) NOTE: must be in the right directory
+# csv_files <- c('1997.csv', '1998.csv', '1999.csv', '2000.csv', '2001.csv', '2002.csv',
+#                '2003.csv', '2004.csv', '2005.csv', '2006.csv', 'airports.csv', 'carriers.csv',
+#                'plane-data.csv', 'variable-descriptions.csv')
+
+
+# reading data from CSV files into a DataFrame
+# data <- lapply(csv_files, read_csv)
+
+
+# combining the separate dataframes into a single dataframe
+# combined_data <- do.call(rbind, data)
+
+
+# writing changes into the DataFrame (onto SQLite database)
+# dbWriteTable(connection, "1997to2006", combined_data, row.names=FALSE, overwrite=TRUE)
+
+```
+
+## Qn2(a)
+
+I am writing a query and putting it in a 'for' loop to make it run for each year. Then i fut the results in a data frame that i made called results_df which I print to show the results.
+
+```{r}
+# defining the years
+Years <- c(1997:2006)
+
+# empty dataframe to store all values
+results_df <- data.frame()
+
+#query 1 for 2(a)
+query1<- "
+SELECT Year, DayOfWeek, DepTime,
+CASE
+    WHEN (DepTime/100) < 6 THEN 'Night'
+    WHEN (DepTime/100) < 12 THEN 'Morning'
+    WHEN (DepTime/100) < 18 THEN 'Afternoon'
+    ELSE 'Evening'
+  END as TimeOfDay,
+AVG(DepDelay + ArrDelay) as AvgTotalDelay
+FROM `1997to2006` 
+WHERE Year = %d
+GROUP BY DayOfWeek
+ORDER BY AvgTotalDelay
+"
+
+# creating a for loop to run query for each year
+for (Year in Years) {
+  new_query <- sprintf(query1, Year)
+  result <- dbGetQuery(conn, new_query)
+  result2 <- head(result,1) # only showing top 1 ("best") row for each year
+  results_df <- rbind(results_df, result2) # making a df of the results
+}
+
+# printing results dataframe
+print(results_df)
+
+
+```
+
+### Plotting the dataframe to visualise how the the Average Total Delay changes
+
+Here I am plotting the Average Total Delay against the Time of Day. This plot visualizes how (from 12 noon to 12 midnight) the minimum average total delay for each year varies. The plot shows no specific trend and is generally the same for all times of the day except that minimum average total delay is usually not at night.
+
+```{r}
+
+# Plotting Average Total Delay against Time of Day
+ggplot(data = results_df, aes(x = TimeOfDay, y = AvgTotalDelay)) +
+  geom_point() +  # Scatter plot
+  labs(x = "Time of Day", y = "Average Total Delay", title = "Plot of Avg Total Delay against Time of Day ")
+
+```
+
+Here I am plotting the Average Total Delay against the Year. This plot visualizes how the minimum average total delay varies for each year. The plot shows no specific trend however we can say that, generally, the minimum average total delay increased from 1997 to 2000 and rapidly decreased over 2001-2002 and from 2003 to 2006 it gradually increased again.
+
+```{r}
+
+# Plotting Average Total Delay against Year
+ggplot(data = results_df, aes(x = Year, y = AvgTotalDelay)) +
+  geom_line() +  # Scatter plot
+  labs(x = "Year", y = "Average Total Delay", title = "Plot of Annual Avg Total Delay")
+
+```
+
+## 2 (b)
+
+listing out the tables from plane-data table to see what they are
+
+```{r}
+
+dbGetQuery(conn,
+"SELECT * FROM `plane-data`"
+)
+
+dbListFields(conn,"plane-data")
+
+```
+
+Using a query to get the data frame that can help to see whether or not old planes suffer more delays.
+
+I used the 2 required tables 1997to2006 and plane-data to get the year that the plane flew in and to get the year it was manufatured in. I also created an "AircraftAge" column to make it easier to compare how long the plane has flown.
+
+```{r}
+
+df2b <- dbGetQuery(conn,
+"SELECT A.Year as FlightYear, B.year as ManufactYear, COUNT(A.tailnum) as TotalNumFlights, AVG(ArrDelay + DepDelay) as AvgTotalDelay, 
+AVG(ArrDelay) as AvgArrDelay, AVG(DepDelay) as AvgDepDelay, (A.Year - B.year) as AircraftAge
+FROM `1997to2006` as A, `plane-data` as B
+WHERE A.TailNum = B.tailnum AND B.year is NOT NULL
+GROUP BY A.Year, B.year
+ORDER BY A.Year, B.year
+"
+)
+
+df2b
+
+```
+
+Here I am plotting the Average Total Delay against the Aircraft Age. This plot visualizes the spread of the average total delay across the aircraft age which is essentially just how old the plane is (difference between the manufacture year and flight year). The plot shows no clear trend and the data is rather well balanced. This shows that older planes DO NOT suffer more delays.
+
+```{r}
+x_limits <- c(0, 55)
+
+# Plotting Average Total Delay against Aircraft age
+ggplot(data = df2b, aes(x = AircraftAge , y = AvgTotalDelay)) +
+  geom_point() +  # Scatter plot
+  labs(x = "Aircraft Age", y = "Average Total Delay", title = "Plot of Avg Total Delay against Aircraft Age")+
+  xlim(x_limits)
+
+```
+
+## 2 (c)
+
+installing additional required packages.
+
+```{r}
+
+library(DBI)
+library(RSQLite)
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+library(caret)
+# library(reshape2)
+
+```
+
+Re-establishing connection from above for ease of reference.
+
+```{r}
+conn <- dbConnect(RSQLite::SQLite(), "CW_FLIGHTS_DATA.db")
+```
+
+Finding the probability of diverted flights. This was to get a good gauge of how many of the US flights have been diverted.
+
+```{r}
+
+diverted_flights_df <- c("SELECT COUNT(*) as DivFlights
+                      FROM `1997to2006`
+                      WHERE Diverted=1
+                      ")
+
+total_flights_df <- c("SELECT COUNT(*) 
+                      FROM `1997to2006`
+                      ")
+
+
+result1 <- dbGetQuery(conn, diverted_flights_df)
+result2 <- dbGetQuery(conn, total_flights_df)
+
+diverted_flights <- as.integer(result1)
+total_flights <- as.integer(result2)
+
+cat("diverted flights =", diverted_flights, "\n")
+cat("total flights =", total_flights, "\n")
+
+ProbDivertedFights <- diverted_flights/total_flights
+cat("Probability of Diverted Fightss =", ProbDivertedFights, "\n")
+
+
+```
+
+### main code
+
+The following code is the main code for part 2(c) where I have created a for loop that contains the query, the definition of the x and y variables, required changes in data type, dummy variables, and the train test model for getting the coefficients. This for loop gives me the coefficients I need for each year (of the different attributes) and stores them in the list "coefficients" which I plotted on the graph for each year.
+
+```{r}
+
+# years range that does not cause r session to crash
+years <- 1997:1999
+
+# empty lists to store coefficients from later
+coefficients <- list()
+
+# for loop to loop the code through all the years
+for (year in years) {
+  # connecting to the db in the loop and defining the query
+  conn <- dbConnect(RSQLite::SQLite(), dbname = "CW_FLIGHTS_DATA.db")
+  query <- paste("
+    SELECT f.year, f.Diverted, f.Month, f.DayofMonth, f.CRSDepTime, f.CRSArrTime, f.Distance, f.UniqueCarrier, 
+    o.lat as orig_lat, o.long as orig_long, d.lat as dest_lat, d.long as dest_long
+    FROM `1997to2006` f
+    JOIN airports o ON f.Origin = o.iata
+    JOIN airports d ON f.Dest = d.iata
+    WHERE f.Year = ", year)
+  df <- dbGetQuery(conn, query)
+  dbDisconnect(conn)
+  
+  # replacing all NAs with 1
+  df[is.na(df)] <- 1
+  
+  # feeding features into x and y and setting target variable
+  x <- df[, !colnames(df) %in% "Diverted"]
+  y <- as.factor(df$Diverted)
+  
+  # checking if there are enough levels for classification
+  # this is important as it is like a make-or-break code when plotting the graph
+  if (length(levels(y)) < 2) {
+    warning("Skipping year ", year, ": Not enough data for classification.")
+    next  # Skip current iteration
+  }
+  
+  # preprocessing pipelines
+  dummy_model <- dummyVars("~.", data = df)
+  preprocessed_df <- predict(dummy_model, newdata = df)
+  
+  # logistic regression model (model fitting)
+  model_fit <- train(x, y, method = "glm", trControl = trainControl(method = "cv", number = 5))
+  
+  # putting coefficients into the list
+  coefficients[[year]] <- coef(model_fit$finalModel)
+}
+
+
+```
+
+### Visualising the coefficients across the years in a scatter plot (2 ways)
+
+There are 2 different ways in which I plotted the graphs, one with the legend and one without. This is because, the legend has all the different variables and is large, thus it covers up the plot itself.
+
+1.  With Legend
+
+```{r}
+
+# WITH LEGEND
+
+# plotting the coefficients across the years
+years_coeffs <- do.call(rbind, coefficients)
+
+# y-axis limits
+ylim <- range(years_coeffs, na.rm = TRUE)
+
+# the code for plotting the graph
+plot(1:dim(years_coeffs)[1], years_coeffs[,1], type='l', col='blue', ylim=ylim, xlab='Year', ylab='Coefficient', main='Coefficients Across Years')
+for (i in 2:dim(years_coeffs)[2]) {
+  lines(1:dim(years_coeffs)[1], years_coeffs[,i], type='l', col=rainbow(dim(years_coeffs)[2])[i])
+}
+
+# plotting the legend away from the graph (dosen't help very much)
+legend("topright", legend=colnames(years_coeffs), col=rainbow(dim(years_coeffs)[2]), lty=1, cex=0.8, inset=c(0, 0.05))
+
+
+```
+
+2.  Without Legend
+
+```{r}
+
+# WITHOUT LEGEND
+
+# plotting the coefficients across the years
+years_coeffs <- do.call(rbind, coefficients)
+
+# y-axis limits
+ylim <- range(years_coeffs, na.rm = TRUE)
+
+# the code for plotting the graph with no legend
+plot(1:dim(years_coeffs)[1], years_coeffs[,1], type='l', col='red', ylim=ylim, xlab='Year', ylab='Coefficient', main='Coefficients Across Years', xaxt='n')
+axis(1, at = 1:dim(years_coeffs)[1], labels = years)
+for (i in 2:dim(years_coeffs)[2]) {
+  lines(1:dim(years_coeffs)[1], years_coeffs[,i], type='l', col=rainbow(dim(years_coeffs)[2])[i])
+}
+
+```
+
+## DO NOT RUN THE CHUNK BELOW !!!
+
+The chunk below was my original code that I did for 2c.
+
+thinking behind the original plan:
+
+To get the visualisation I started by getting a query for all the columns I need and creating a database for it to be stored in. I then set up the years and some required empty data structures to store my data from the for-loop I created after. From the for-loop I generated the required data for each year and created a model. I then stored the model in the empty data frame. I then “melted” the data to get the coefficients. Throughout my data I inputted some print statements to ensure that the code is working properly. The main error is in the model.
+
+Originally, I believd that since I did not need to predict or forecase anything, it was unnecesary for me to have a train-test-slpit model. Howver, I realised that it is necessary to have such a model if we want to get the coefficients which is what I did in my code above.
+
+```{r}
+# Writing a the query and storing it in 'data'. This is to bring the required columns that I will be using onto R rather than having to query the database each time.
+
+
+query_2c <- c("
+SELECT Year, Diverted, Month, DayofMonth, DayOfWeek, CRSDepTime, CRSArrTime, Distance, UniqueCarrier
+FROM `1997to2006`
+WHERE Diverted = 1
+")
+# this only takes the diverted flights
+
+# storing the query in database called data
+data <- dbGetQuery(conn, query_2c)
+
+
+
+# Additionally, a different version of the query above would be this one below. However, this query takes an extremely long time to run and can potentially cause the R session to crash which happened to me a few times which is why I chose to modify it to the one above.This query includes additional columns from the "airports" table which will be more informative.
+
+### DO NOT RUN THIS QUERY BELOW
+
+# query_2c <- c("
+# SELECT A.Year, A.Diverted, A.Month, A.DayofMonth, A.DayOfWeek, A.CRSDepTime, A.CRSArrTime, A.Distance, A.UniqueCarrier, 
+# B.iata, B.lat, B.long
+# FROM `1997to2006` as A, airports as B
+# WHERE A.Diverted = 1
+# ")
+
+
+
+# -------------------
+# Adding the necessary empty lists and covering data to ensure smooth running of following code.
+
+# converting all the data in UniqueCarrier column to numeric
+data$UniqueCarrier <- as.numeric(data$UniqueCarrier)
+
+# splitting dataset by year to have all 10 years in "years"
+years <- unique(data$Year)
+
+# empty list to store coefficients for each year
+coefficients_by_year <- list()
+
+# --------------------
+# Creating a for-loop for the data and model to run in so that it repeats for every year.
+
+# creating a for-loop to ensure generating values for each of the 10 years
+for (Year in years) {
+  query_data <- sprintf(query_2c, Year)
+  year_data <- dbGetQuery(conn, query_data)
+  
+  # converting all the data in UniqueCarrier column to numeric
+  year_data$Diverted <- as.factor(year_data$Diverted)
+  
+  # omitting the unique carrier column because it has too many null values
+  year_data <- year_data[, -9]
+  
+  # creating the model
+  model <- glm(formula = Diverted ~ ., data = year_data, family = "binomial")
+  
+  # feeding the yearly model to name "coefficients_by_year"
+  coefficients_by_year[[as.character(Year)]] <- coef(model)
+}
+
+# printing (for each year) just to see the progress
+model
+coefficients_by_year
+
+
+# -------------------
+# Putting the data from the 'for' loop into a data frame
+
+# converting the coefficients into a data frame
+coefficients_df <- bind_rows(coefficients_by_year, .id = "Year")
+
+#getting the structure of coefficients_df to view what it looks like
+str(coefficients_df)
+
+
+
+# --------------------
+
+# "Melting" the data from coefficients_df so that it can be used for plotting for the visualization.
+
+
+# "melting" the data to reshape for plotting
+melted_data <- melt(coefficients_df, id.vars = c("Year"), measure.vars = c("(Intercept)", "Month", "DayofMonth", "DayOfWeek", "CRSDepTime", "CRSArrTime"))
+# this gives the columns Year, Variable and Value where 'Value' is the coefficients
+
+# printing the melted data to see what it looks like:
+melted_data 
+# This is not entirely correct, I am unsure of what to change. There seems to be an error in the coefficients_df and here, the 'value' should give the coefficient however it gives me the exact same value for each year.
+
+
+#------------------
+# Visualising the coefficients across the years in a scatter plot (2 ways)
+
+
+
+# 1.  one graph with all the years
+
+
+ggplot(melted_data, aes(x = Year, y = value, color = variable, alpha = 0.5)) +
+  geom_point() +
+  labs(title = "Logistics Coefficients by Year", x = "Year", y = "Coefficient Value", color = "Variable") +
+  theme_classic() +
+  scale_y_continuous(limits = c(-0.5, 0.5)) +
+  scale_color_brewer(palette = "Set1") +
+  guides(color = guide_legend(override.aes = list(alpha = 1)))
+
+# alpha - 0.5 is for the opacity showing that all coefficients are plotted but are on the same point
+
+
+# 2.  separate graph for each year:
+
+ggplot(melted_data, aes(x = Year, y = value, color = variable)) +
+  geom_point() +
+  facet_wrap(~ Year, nrow = 2) + # Wrap plots into a 2x2 grid
+  labs(title = "Logistics Coefficients by Year", x = "Year", y = "Coefficient Value", color = "Variable") +
+  theme_classic()
+
+# ------------------------end of chunk for the wrong code
+```
+
+Finally, now that we are done with everything, we can disconnect the connection.
+
+```{r}
+dbDisconnect(conn)
+```

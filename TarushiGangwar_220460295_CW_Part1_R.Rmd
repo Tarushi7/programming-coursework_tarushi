@@ -1,0 +1,455 @@
+---
+title: "CW_Part1_R"
+author: "Tarushi"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+# Coursework Part 1
+
+Please note that the explanation of my results is done in the report and here, I have explained my code throughout to understand better what I am doing in each chunk.
+
+Firstly, let us set up the working directory continuing from the current directory of the file to ensure that it works everywhere.
+
+```{r}
+
+# current directory of the rmd file:
+script_dir <- dirname(rstudioapi::getActiveDocumentContext()$path)
+
+# setting the working directory to the script directory so that it runs regardless of where the file is
+setwd(script_dir)
+
+# to check if the working directory has been correctly set
+getwd()
+
+# (only for me)
+# setwd("/Users/sushii/SIM_UOL/Year 2 acads/Programming for DS/Coursework/FINAL")
+
+```
+
+## Part 1a
+
+Installing the required Packages.
+
+```{r}
+# for Markov Chain Monte Carlo simulations:
+install.packages("MCMCpack")
+# for analysing the random walk metropolis:
+install.packages("coda")
+
+library(MCMCpack)
+library(coda)
+library(ggplot2)
+```
+
+### Defining the probability density function (pdf) as given.
+
+```{r}
+
+pdf <- function(x) {
+  result <- 0.5*exp(-abs(x))
+  return(result)
+}
+
+```
+
+Setting up the initial values for part1(a).
+
+```{r}
+
+x0 <- 1
+N_a <- 10000
+s_a <- 1
+xi_minus_1 <- 1 # starting value
+
+```
+
+To fulfill step 2, we need to repeat the given procedure for different values of i (i=1,2,3.....N). Below I have created empty vectors to store values i will generate later.
+
+```{r}
+
+# creating vectors for the results
+xi_values <- numeric(N_a)
+u_values <- numeric(N_a)
+
+```
+
+Creating a for loop to generate required values and printing the required results to ensure that the code is working. (comments explain the code along the way)
+
+```{r}
+
+# for loop to get values for i = 1 to N
+for (i in 1:N_a) {
+  # to simulate a random number from a normal distribution
+  x_star <- rnorm(1, mean = xi_minus_1, sd = s_a)
+  
+  # calculating the ratio r(x*, xi_minus_1)
+  r <- pdf(x_star) / pdf(xi_minus_1)
+  
+  # generating the random number u from uniform distribution
+  u <- runif(1,0,1)
+  
+  # setting xi value depending on u > r or u <= r
+  if (u < r) {
+    xi <- x_star
+  } else {
+    xi <- xi_minus_1
+  }
+  
+  # storing the values in the created vectors
+  xi_values[i] <- xi
+  u_values[i] <- u
+  
+  # update xi_minus_1 for every next iteration (when i changes)
+  xi_minus_1 <- xi
+}
+
+# to print the results: (not required)
+print(xi_values)
+print(u_values)
+
+```
+
+### Plotting the Graphs.
+
+```{r}
+
+# plotting the histogram:
+hist(xi_values, probability = TRUE, col = "lightblue", main = "Histogram with KDE and PDF", xlab = "x Values", ylim = c(0, max(density(xi_values)$y)))
+
+# plotting kernel density plot on same graph:
+lines(density(xi_values), col = "red", lwd = 3)
+
+# probability density function (PDF) curve
+x_range <- seq(min(xi_values), max(xi_values), length = 1000)
+pdf_values <- pdf(x_range)
+lines(x_range, pdf_values, col = "black", lwd = 2)
+
+# legend to label the lines
+legend("topright", legend = c("Histogram", "Kernel Density", "f(x)"), col = c("lightblue", "red", "black"), lwd = 2)
+
+
+```
+
+Reporting the Monte Carlo Estimates.
+
+```{r}
+
+sample_mean <- mean(xi_values)
+sample_sd <- sd(xi_values)
+
+# to print in a more readable format
+cat("Sample Mean:", sample_mean, "\n")
+cat("Sample Standard Deviation:", sample_sd, "\n")
+
+```
+
+## Part 1b
+
+Installing more required Packages.
+
+```{r}
+
+install.packages("MASS")
+library(MASS)
+
+install.packages("stats")
+library(stats)
+
+```
+
+Setting up the initial values for part1(b).
+
+```{r}
+
+J <- 4
+N_b <- 2000
+s_b <- 0.001
+
+```
+
+Recalling the pdf from above and creating an empty matrix to store the sequences I will be generating ahead.
+
+```{r}
+
+pdf <- function(x) {
+  result <- 0.5*exp(-abs(x))
+  return(result)
+}
+
+# empty matrix to store sequences:
+sequences <- matrix(0, nrow = N_b, ncol = J)
+
+```
+
+### Using 'for' loop generating the sequences with different initial values x0 for for j = 1,2,...,J
+
+```{r}
+
+# to generate sequences
+for (j in 1:J) {
+  x0 <- runif(1)  # generating the initial value by generating a random value from uniform distribution 
+  sequence <- pdf(x0)
+  sequence[1] <- x0
+  
+  for (i in 2:N_b) {
+    # updating each subsequent value in sequence by adding a random value from a uniform distribution
+    sequence[i] <- sequence[i - 1] + runif(1)
+  }
+  
+  # storing the sequences in the matrix
+  sequences[, j] <- sequence
+}
+
+# displaying the first few elements of each sequence (not required)
+head(sequences)
+
+
+# plotting the sequences and adding a legend (just to visualise, not required)
+matplot(1:N_b, sequences, type = "l", col = 1:J, xlab = "N_b", ylab = "J", main = "Sequences")
+legend("topright", legend = paste("Sequence", 1:J), col = 1:J, lty = 1)
+
+
+```
+
+Defining and computing Mj:
+
+```{r}
+
+for (j in 1:J) {
+  Mj <- (1 / N_b) * sum(sequences[[j]])
+  cat("Sample Mean of Chain", j, ":",  sprintf("%.5f", Mj), "\n")
+}
+
+```
+
+Defining and computing Vj:
+
+```{r}
+
+for (j in 1:J) {
+  Vj <- (1 / N_b) * sum((sequences[[j]] - Mj)^2)
+  cat("Sample Variance of Chain", j, ":",  sprintf("%.5f", Vj), "\n")
+}
+
+```
+
+Defining and computing W:
+
+Through research I have understood that, W provides us with an indication of how much the individual chains fluctuate around their respective sample means
+
+```{r}
+
+W <- (1 / J) * sum(Vj)
+cat("Overall Within Sample Variance:",  sprintf("%.5f", W), "\n")
+
+```
+
+Defining and computing M:
+
+```{r}
+
+M <- (1 / J) * sum(Mj)
+cat("Overall Sample Mean:",  sprintf("%.5f", M), "\n")
+
+```
+
+Defining and computing B:
+
+```{r}
+
+B <- (1 / J) * sum((Mj - M)^2)
+cat("Between Sample Variance:",  sprintf("%.10f", B), "\n")
+
+
+```
+
+Defining and computing R_hat value:
+
+```{r}
+
+R_hat <- sqrt((B + W)/W)
+cat("R_hat value:",  sprintf("%.5f", R_hat), "\n")
+
+```
+
+Since my r_hat value is close to 1, it indicates convergence of the algorithm and since it is smaller than 1.05, it is a desired value.
+
+Putting all the definitions and computations done above into a for loop to get the R_hat values to plot over a grid of s values in the interval between 0.001 and 1.
+
+```{r}
+
+# re-defining the given pdf and the parameters (for convenience)
+f <- function(x) {
+  return(12 * exp(-abs(x)))
+}
+
+N_b <- 2000
+J <- 4
+s_values <- seq(0.001, 1, length.out = 100) 
+# 100 s values within the range 0.001 to 1
+
+# empty numeric vector of length = s values = 100, to store the generated values later
+R_hat_values <- numeric(length(s_values))
+
+```
+
+Below I have generated 2 function with different purposes. One to to generate samples using the Metropolis-Hastings algorithm and another to compute the required statistics values (the Mj, Vj, M, W, B and R hat). After this, I iterated the r hat values over the 100 s values using a for loop.
+
+```{r}
+
+# creating a function to generate samples using the Metropolis-Hastings algorithm method
+algorithm_function <- function(N_b, s, J) {
+  chains <- list() # empty list to store generated values later
+  for (j in 1:J) {
+    chain <- numeric(N_b) # another vector, chains
+    chain[1] <- rnorm(1, 0, 1)  # using normal distribution
+    for (i in 2:N) {
+      x_star <- rnorm(1, chain[i - 1], s) # normal distribution to generate values
+      r <- f(x_star) / f(chain[i- 1]) # using the pdf function
+      if (runif(1) < r) {  # uniform values for checking if < r as value must be < r 
+        chain[i] <- x_star
+      } else {
+        chain[i] <- chain[i - 1]
+      }
+    }
+    chains[[j]] <- chain
+  }
+  chains
+}
+
+# function to compute the Rhat values for the 100 s values
+iterations_function <- function(chains) {
+  sample_means <- numeric(length(chains)) # for Mj
+  within_sample_variances <- numeric(length(chains)) # for Vj
+  
+  # the for-loop below calculates values of Mj and Vj over the the iterations
+  for (i in 1:length(chains)) {
+    chain <- chains[[i]]
+    sample_means[i] <- mean(chain) 
+    within_sample_variances[i] <- mean((chain - sample_means[i])^2) # for Vj
+  }
+  
+  overall_sample_mean <- mean(sample_means) # for M
+  overall_within_sample_variance <- mean(within_sample_variances) # for W
+  between_sample_variance <- mean((sample_means - overall_sample_mean)^2) # for B
+  # I chose to write the whole name instead of the letters M, W or B etc for more clarity
+  
+  # calculating the R hat value with the given formula
+  R_hat <- (between_sample_variance / overall_within_sample_variance + overall_within_sample_variance) / overall_within_sample_variance
+  R_hat
+}
+
+
+# for loop to calculate Rb values by iterating then over the s values
+for (i in 1:length(s_values)) {
+  s <- s_values[i]
+  chains <- algorithm_function(N_b, s, J)
+  R_hat_values[i] <- iterations_function(chains)
+}
+
+# print or use the results (just to see, not required)
+print(R_hat_values)
+
+```
+
+Plotting the r hat values against the iterations (s values). The plot shows a downward sloping trend with r_hat = 1 as the asymptote. The downward sloping trend is more visible in the graph with a different scale that shows r-hat values from 0 to 50, plotted below the required graph.
+
+```{r}
+
+# Plot Rb values
+plot(s_values, R_hat_values, type = "l", xlab = "s values", ylab = "R hat values", 
+     main = "R hat values over a grid of s values", xlim = c(0.001, 1), ylim= c(1,1.05))
+grid()
+
+```
+
+```{r}
+
+# Plot Rb values
+plot(s_values, R_hat_values, type = "l", xlab = "s values", ylab = "R hat values", 
+     main = "R hat values over a grid of s values", xlim = c(0.001, 1), ylim= c(0,50))
+grid()
+
+```
+
+### The following code is wrong !!
+
+The code below was my original code, however, I realized that the shape of the graph that I got was wrong and hence I did it again multiple times to finally understand what was wrong, fix it, and get the right graph which is the one above.
+
+```{r}
+
+#re-defining
+N_b <- 2000
+J <- 4
+
+# defining the s values
+s_values <- seq(0.001, 1, length.out = 100)
+
+# to store results:
+R_hat_values <- numeric(length(s_values))
+W_values <- numeric(length(s_values))
+B_values <- numeric(length(s_values))
+
+
+for (i in seq_along(s_values)) {
+  
+  # generating R_hat values
+  R_hat_values[i] <- sqrt((B_values[i] + W_values[i]) / W_values[i])
+  
+  # generating the sequences
+  sequences <- lapply(1:J, function(j) runif(N_b))
+  
+  # applying the pdf function to each element of sequences
+  pdf_values <- lapply(sequences, pdf)
+  
+  Mj <- numeric(J)
+  Vj <- numeric(J)
+  
+  # defining and calculating Mj, Vj, W, M, and B in the for loop using pdf_values
+  for (j in 1:J) {
+    Mj[j] <- (1 / N_b) * sum(pdf_values[[j]])
+    Vj[j] <- (1 / N_b) * sum((pdf_values[[j]] - Mj[j])^2)
+  }
+  
+  W_values[i] <- (1 / J) * sum(Vj)
+  M <- (1 / J) * sum(Mj)
+  B_values[i] <- (1 / J) * sum((Mj - M)^2)
+  
+  # checking if values are undefined (--/0) before calculating R_hat 
+  if (W_values[i] != 0) {
+    R_hat_values[i] <- sqrt((B_values[i] + W_values[i]) / W_values[i])
+  } else {
+    R_hat_values[i] <- NaN  # will show NaN if value is undefined
+  }
+}
+
+# print or use the results (just to see, not required)
+print(R_hat_values)
+print(W_values)
+print(B_values)
+
+
+```
+
+Plot for the wrong code above
+
+```{r}
+
+
+# creating the plot 
+plot(s_values, R_hat_values, type = "l", col = "blue", xlab = "s values", ylab = "R_hat", main = "Plot of R_hat values against s values")
+
+# adding labels and a legend
+legend("topright", legend = "R_hat", col = "blue", lty = 1)
+
+
+
+
+```
+
+```{r}
+
+```
+
+-------x-end
